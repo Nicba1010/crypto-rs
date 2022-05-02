@@ -62,11 +62,16 @@ impl ImageSet {
 /// Cast-as-Intended proof
 #[derive(Eq, PartialEq, Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct CaiProof {
+    #[serde(rename = "s1")]
     s1_options: Vec<ModInt>,
+    #[serde(rename = "s2")]
     s2_options: Vec<ModInt>,
+    #[serde(rename = "h1")]
     h1_options: Vec<ModInt>,
+    #[serde(rename = "h2")]
     h2_options: Vec<ModInt>,
 
+    #[serde(rename = "hash_result")]
     h: ModInt
 }
 

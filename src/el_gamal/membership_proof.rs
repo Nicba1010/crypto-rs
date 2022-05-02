@@ -20,7 +20,9 @@ use ::el_gamal::serializer::Serializer;
 
 #[derive(Eq, PartialEq, Serialize, Deserialize, Hash, Clone, Debug)]
 pub struct MembershipProof {
+    #[serde(rename = "s")]
     s_responses: Vec<ModInt>,
+    #[serde(rename = "c")]
     c_responses: Vec<ModInt>
 }
 
