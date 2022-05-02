@@ -32,7 +32,7 @@ impl PublicKey {
         let public_key: PublicKey = match serde_json::from_str(&contents) {
             Ok(public_key_data) => {
                 public_key_data
-            },
+            }
             Err(e) => {
                 panic!("Failed to transform file {:?} into PublicKey: {:?}", file, e);
             }
@@ -78,7 +78,7 @@ impl PrivateKey {
         let private_key: PrivateKey = match serde_json::from_str(&contents) {
             Ok(private_key_data) => {
                 private_key_data
-            },
+            }
             Err(e) => {
                 panic!("Failed to transform file {:?} into PrivatKey: {:?}", file, e);
             }
@@ -108,7 +108,7 @@ pub fn encrypt(public_key: &PublicKey, message: ModInt) -> CipherText {
     let h = public_key.h.clone();
 
     let big_g = g.clone().pow(random.clone());
-    let big_h1= h.clone().pow(random.clone());
+    let big_h1 = h.clone().pow(random.clone());
     let big_h2 = g.clone().pow(message.clone());
 
     let big_h = big_h1 * big_h2;
@@ -121,12 +121,13 @@ pub fn encrypt(public_key: &PublicKey, message: ModInt) -> CipherText {
 }
 
 pub fn decrypt(private_key: PrivateKey, cipher_text: CipherText) -> ModInt {
-
     let h: &ModInt = &cipher_text.big_h;
     let g: &ModInt = &cipher_text.big_g;
     let x: &ModInt = &private_key.x;
 
     let g_to_m: ModInt = h.clone() / (g.clone().pow(x.clone()));
+    println!("{}", cipher_text.clone().random);
+    println!("{}", g_to_m.clone());
 
     let mut i: ModInt = ModInt::zero();
     // find cleartext value so that it matches target
@@ -144,34 +145,64 @@ pub fn decrypt(private_key: PrivateKey, cipher_text: CipherText) -> ModInt {
 
 #[cfg(test)]
 mod encryption_test {
-
+    use std::ops::{Div, Sub};
     use ::el_gamal::encryption::PrivateKey;
     use ::el_gamal::encryption::PublicKey;
     use ::el_gamal::encryption::{encrypt, decrypt};
     use ::arithmetic::mod_int::ModInt;
-    use arithmetic::mod_int::From;
+    use arithmetic::mod_int::{From, RandModInt};
     use ::num::bigint::BigInt;
     use ::num::Zero;
     use ::num::One;
+    use num::pow::Pow;
 
     #[test]
     fn encrypt_decrypt() {
         let message: ModInt = ModInt::one();
+        //
+        // let priv_key: PrivateKey = PrivateKey {
+        //     p: ModInt::from_value_modulus(BigInt::from(5), BigInt::zero()),
+        //     q: ModInt::from_value_modulus(BigInt::from(2), BigInt::zero()),
+        //     g: ModInt::from_value_modulus(BigInt::from(2), BigInt::zero()),
+        //     x: ModInt::from_value_modulus(BigInt::from(5), BigInt::zero())
+        // };
+        //
+        // //h := (g^x) mod p
+        // //2 := 2^5 mod 5
+        // let pub_key: PublicKey = PublicKey {
+        //     p: ModInt::from_value_modulus(BigInt::from(5), BigInt::zero()),
+        //     q: ModInt::from_value_modulus(BigInt::from(2), BigInt::zero()),
+        //     h: ModInt::from_value_modulus(BigInt::from(32), BigInt::from(5)),
+        //     g: ModInt::from_value_modulus(BigInt::from(2), BigInt::from(5))
+        // };
+        //
+        // let c = encrypt(&pub_key, message);
+        //
+        // let result_message = decrypt(priv_key, c);
+        //
+        // assert_eq!(ModInt::one().value, result_message.value);
+
+
+        let p: ModInt = ModInt::from_value_modulus(BigInt::from(5), BigInt::zero());
+        let q: ModInt = p.clone().sub(ModInt::from_value(BigInt::from(1))).div(ModInt::from_value(BigInt::from(2)));
 
         let priv_key: PrivateKey = PrivateKey {
-            p: ModInt::from_value_modulus(BigInt::from(5), BigInt::zero()),
-            q: ModInt::from_value_modulus(BigInt::from(2), BigInt::zero()),
-            g: ModInt::from_value_modulus(BigInt::from(2), BigInt::zero()),
-            x: ModInt::from_value_modulus(BigInt::from(5), BigInt::zero())
+            p: p.clone(),
+            q: q.clone(),
+            g: ModInt::from_value_modulus(q.clone().value, p.clone().value),
+            x: p.clone(),
         };
 
         //h := (g^x) mod p
         //2 := 2^5 mod 5
         let pub_key: PublicKey = PublicKey {
-            p: ModInt::from_value_modulus(BigInt::from(5), BigInt::zero()),
-            q: ModInt::from_value_modulus(BigInt::from(2), BigInt::zero()),
-            h: ModInt::from_value_modulus(BigInt::from(32), BigInt::from(5)),
-            g: ModInt::from_value_modulus(BigInt::from(2), BigInt::from(5))
+            p: priv_key.p.clone(),
+            q: priv_key.q.clone(),
+            h: ModInt::from_value_modulus(
+                priv_key.g.clone().pow(priv_key.x.clone()).value,
+                priv_key.p.value.clone(),
+            ),
+            g: priv_key.g.clone(),
         };
 
         let c = encrypt(&pub_key, message);
@@ -187,7 +218,7 @@ mod encryption_test {
             p: ModInt::from_value_modulus(BigInt::from(5), BigInt::zero()),
             q: ModInt::from_value_modulus(BigInt::from(2), BigInt::zero()),
             h: ModInt::from_value_modulus(BigInt::from(32), BigInt::from(5)),
-            g: ModInt::from_value_modulus(BigInt::from(2), BigInt::from(5))
+            g: ModInt::from_value_modulus(BigInt::from(2), BigInt::from(5)),
         };
 
         pub_key.to_file("public_key.json");
@@ -206,7 +237,7 @@ mod encryption_test {
             p: ModInt::from_value_modulus(BigInt::from(5), BigInt::zero()),
             q: ModInt::from_value_modulus(BigInt::from(2), BigInt::zero()),
             g: ModInt::from_value_modulus(BigInt::from(2), BigInt::zero()),
-            x: ModInt::from_value_modulus(BigInt::from(5), BigInt::zero())
+            x: ModInt::from_value_modulus(BigInt::from(5), BigInt::zero()),
         };
 
         priv_key.to_file("private_key.json");

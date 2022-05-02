@@ -1,5 +1,5 @@
 use ::arithmetic::mod_inverse;
-use num::bigint::BigInt;
+use num::bigint::{BigInt, Sign};
 use num::bigint::RandBigInt;
 use num::One;
 use num;
@@ -12,10 +12,15 @@ use std::clone::Clone;
 use std::cmp::Ordering;
 use std::cmp::PartialEq;
 use std::cmp::PartialOrd;
+use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
-use std::fmt::{Formatter, Result, Display, Debug};
+use std::fmt::{Formatter, Result, Display, Debug, Write};
 use serde;
 use std::result::Result as stdResult;
+use serde::de::{MapAccess, SeqAccess};
+use serde::de::value::MapDeserializer;
+use serde::ser::{SerializeMap, SerializeStruct};
+use serde_json::Value;
 
 
 // TODO
@@ -31,11 +36,31 @@ pub struct ModInt {
     pub modulus: BigInt,
 }
 
+fn sign_to_u8(sign: Sign) -> u8 {
+    match sign {
+        Sign::Minus => 0,
+        Sign::NoSign => 1,
+        Sign::Plus => 2
+    }
+}
+
+pub(crate) fn mod_int_to_bytes(mod_int: &ModInt) -> Vec<u8> {
+    let mut bytes: Vec<u8> = Vec::new();
+    bytes.push(sign_to_u8(mod_int.value.to_bytes_le().0.clone()));
+    bytes.append(&mut mod_int.value.to_bytes_le().1.clone());
+    bytes.push(sign_to_u8(mod_int.modulus.to_bytes_le().0.clone()));
+    bytes.append(&mut mod_int.modulus.to_bytes_le().1.clone());
+
+    bytes
+}
+
 impl serde::Serialize for ModInt {
     fn serialize<S>(&self, serializer: S) -> stdResult<S::Ok, S::Error> where
         S: serde::Serializer {
-
-        (&self.value, &self.modulus).serialize(serializer)
+        let mut struct_serializer = serializer.serialize_struct("mod_int", 2).unwrap();
+        struct_serializer.serialize_field("value", &self.value.to_string());
+        struct_serializer.serialize_field("modulus", &self.modulus.to_string());
+        struct_serializer.end()
     }
 }
 
@@ -43,11 +68,93 @@ impl<'de> serde::Deserialize<'de> for ModInt {
     fn deserialize<D>(deserializer: D) -> stdResult<Self, D::Error>
         where D: serde::Deserializer<'de>
     {
-        let (value, modulus) = serde::Deserialize::deserialize(deserializer)?;
-        Ok(ModInt {value, modulus})
+        enum Field {Value, Modulus}
+
+        impl<'de> serde::de::Deserialize<'de> for Field {
+            fn deserialize<D>(deserializer: D) -> stdResult<Field, D::Error>
+                where
+                    D: serde::Deserializer<'de>,
+            {
+                struct FieldVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for FieldVisitor {
+                    type Value = Field;
+
+                    fn expecting(&self, formatter: &mut Formatter) -> Result {
+                        formatter.write_str("`value` or `modulus`")
+                    }
+
+                    fn visit_str<E>(self, value: &str) -> stdResult<Field, E>
+                        where
+                            E: serde::de::Error,
+                    {
+                        match value {
+                            "value" => Ok(Field::Value),
+                            "modulus" => Ok(Field::Modulus),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+
+                deserializer.deserialize_identifier(FieldVisitor)
+            }
+        }
+
+        struct ModIntVisitor;
+        impl<'de> serde::de::Visitor<'de> for ModIntVisitor {
+            type Value = ModInt;
+
+            fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+                formatter.write_str("struct Duration")
+            }
+
+            fn visit_seq<V>(self, mut seq: V) -> stdResult<ModInt, V::Error>
+                where
+                    V: SeqAccess<'de>,
+            {
+                let value_ = seq.next_element()?.ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
+                let modulus_ = seq.next_element()?.ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
+                let value = BigInt::from_str_radix(value_, 10).unwrap();
+                let modulus = BigInt::from_str_radix(modulus_, 10).unwrap();
+                Ok(ModInt::from_value_modulus(value, modulus))
+            }
+
+            fn visit_map<V>(self, mut map: V) -> stdResult<ModInt, V::Error>
+                where
+                    V: MapAccess<'de>,
+            {
+                let mut value__ = None;
+                let mut modulus__ = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Value => {
+                            if value__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("value"));
+                            }
+                            value__ = Some(map.next_value()?);
+                        }
+                        Field::Modulus => {
+                            if modulus__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("modulus"));
+                            }
+                            modulus__ = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                // let value_ = value__?.ok_or_else(|| serde::de::Error::missing_field("value"))?;
+                // let modulus_ = modulus__?.ok_or_else(|| serde::de::Error::missing_field("modulus"))?;
+                let value = BigInt::from_str_radix(value__.unwrap(), 10).unwrap();
+                let modulus = BigInt::from_str_radix(modulus__.unwrap(), 10).unwrap();
+                Ok(ModInt::from_value_modulus(value, modulus))
+            }
+        }
+
+        const FIELDS: &'static [&'static str] = &["value", "modulus"];
+
+        deserializer.deserialize_struct("mod_int", FIELDS, ModIntVisitor)
     }
 }
-
 
 
 impl Clone for ModInt {
@@ -383,6 +490,14 @@ mod mod_int_tests {
     use ::num::traits::Pow;
     use ::num::Zero;
     use ::std::ops::Neg;
+    use num::Num;
+
+    #[test]
+    fn test_serialize() {
+        let vm: ModInt = ModInt::from_value_modulus(BigInt::from_str_radix("563278436876289345672848395", 10).unwrap(), BigInt::from_str_radix("87595204385799241324765969503824754964530283476", 10).unwrap());
+        let mv: ModInt = serde_json::from_str(&*serde_json::to_string(&vm).unwrap()).unwrap();
+        assert_eq!(vm, mv);
+    }
 
     #[test]
     fn test_equal() {
@@ -607,7 +722,7 @@ mod mod_int_tests {
         let one: ModInt = ModInt::one();
         let zero: ModInt = ModInt::zero();
 
-        one / zero;
+        let _ = one / zero;
     }
 
     #[test]
@@ -622,7 +737,7 @@ mod mod_int_tests {
             BigInt::from(5),
         );
 
-        one / zero;
+        let _ = one / zero;
     }
 
     #[test]

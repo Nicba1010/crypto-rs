@@ -1,10 +1,12 @@
 use ::arithmetic::mod_int::ModInt;
 use ::arithmetic::mod_int::RandModInt;
+use ::arithmetic::mod_int::mod_int_to_bytes;
 use ::el_gamal::ciphertext::CipherText;
 use ::el_gamal::encryption::{PublicKey};
 use arithmetic::mod_int::From;
-use num::bigint::BigInt;
-use num::{Zero};
+use std::str::FromStr;
+use num::bigint::{BigInt, Sign};
+use num::{Num, Zero};
 use num::traits::pow::Pow;
 use std::ops::Div;
 use std::ops::Mul;
@@ -12,48 +14,47 @@ use std::ops::Neg;
 use std::ops::Sub;
 use std::vec::Vec;
 use std::ops::Add;
+use std::ptr::hash;
+use sha2::{Digest, Sha512};
 use ::el_gamal::serializer::Serializer;
 
 #[derive(Eq, PartialEq, Serialize, Deserialize, Hash, Clone, Debug)]
 pub struct MembershipProof {
     s_responses: Vec<ModInt>,
-    c_responses: Vec<ModInt>,
-    y_responses: Vec<ModInt>,
-    z_responses: Vec<ModInt>,
-
-    p: ModInt,
-    q: ModInt,
+    c_responses: Vec<ModInt>
 }
 
 impl MembershipProof {
     pub fn new(public_key: PublicKey, plain_text: ModInt, cipher_text: CipherText, domains: Vec<ModInt>) -> MembershipProof {
-        let mut y_response: Vec<ModInt> = vec![];
-        let mut z_response: Vec<ModInt> = vec![];
         let mut s_response: Vec<ModInt> = vec![];
         let mut c_response: Vec<ModInt> = vec![];
 
-        let g = ModInt {
-            value: public_key.g.value.clone(),
-            modulus: public_key.p.value.clone(),
-        };
+        let mut s_for_valid = ModInt::gen_modint(public_key.q.clone());
+        s_for_valid.value = BigInt::from_str_radix("16870143206178733140190693110102914592767898127", 10).unwrap();
 
-        let h = ModInt {
-            value: public_key.h.value.clone(),
-            modulus: public_key.p.value.clone(),
-        };
 
-        let t = ModInt::gen_modint(public_key.q.clone());
+        println!("{}", public_key.g);
+        println!("{}", cipher_text);
 
-        let mut string_to_hash = String::new();
-        string_to_hash += &g.to_string();
-        string_to_hash += &h.to_string();
-        string_to_hash += &cipher_text.big_g.to_string();
-        string_to_hash += &cipher_text.big_h.to_string();
+        let mut hasher = Sha512::default();
+        hasher.input(mod_int_to_bytes(&public_key.g).as_slice());
+        hasher.input(mod_int_to_bytes(&public_key.h).as_slice());
+        hasher.input(mod_int_to_bytes(&cipher_text.big_g).as_slice());
+        hasher.input(mod_int_to_bytes(&cipher_text.big_h).as_slice());
+        println!("{:?}",hasher.clone().result().as_slice());
 
-        let mut message_idx = 0;
+        // let mut string_to_hash = String::new();
+        // string_to_hash += &g.to_string();
+        // string_to_hash += &h.to_string();
+        // string_to_hash += &cipher_text.big_g.to_string();
+        // string_to_hash += &cipher_text.big_h.to_string();
+
+        let mut chosen_vote_idx = 0;
         for i in 0..domains.len() {
-            let mut y: ModInt;
-            let mut z: ModInt;
+            println!("Loop begin");
+            println!("{:?}",hasher.clone().result().as_slice());
+            let a: ModInt;
+            let b: ModInt;
 
             let domain_val: ModInt = (*domains.get(i).unwrap()).clone();
 
@@ -62,50 +63,71 @@ impl MembershipProof {
                 s_response.push(ModInt::zero());
                 c_response.push(ModInt::zero());
 
-                y = g.clone().pow(t.clone());
-                z = h.clone().pow(t.clone());
+                a = public_key.g.clone().pow(s_for_valid.clone());
+                b = public_key.h.clone().pow(s_for_valid.clone());
+                println!("{}", a.clone());
+                println!("{}", b.clone());
 
-                message_idx = i;
+                chosen_vote_idx = i;
             } else {
                 // add fake commitments as well as the corresponding response
                 // for a value which is not the plaintext message
-                let s = ModInt::gen_modint(public_key.q.clone());
-                let c = ModInt::gen_modint(public_key.q.clone());
+                let mut s = ModInt::gen_modint(public_key.q.clone());
+                let mut c = ModInt::gen_modint(public_key.q.clone());
+                s.value = BigInt::from_str_radix("340426178212846383764710607281056135739139464083", 10).unwrap();
+                c.value = BigInt::from_str_radix("359230415343133064330408750969231566014081435744", 10).unwrap();
 
                 s_response.push(s.clone());
                 c_response.push(c.clone());
 
-                let neg_c = c.neg();
-                let g_pow = g.clone().pow(domain_val.clone());
+                let neg_c = c.clone().neg();
+                let g_pow = public_key.g.clone().pow(domain_val.clone());
 
-                y = g.clone().pow(s.clone()).mul(cipher_text.big_g.clone().pow(neg_c.clone()));
-                z = h.clone().pow(s.clone()).mul(cipher_text.big_h.clone().div(g_pow).pow(neg_c.clone()));
+                a = public_key.g.clone().pow(s.clone()).mul(cipher_text.big_g.clone().pow(neg_c.clone()));
+                b = public_key.h.clone().pow(s.clone()).mul(cipher_text.big_h.clone().div(g_pow).pow(neg_c.clone()));
+                println!("{}", public_key.g.clone().pow(s.clone()));
+                println!("{}", c.clone());
+                println!("{}", neg_c.clone());
+                println!("{}", cipher_text.big_g.clone().pow(neg_c.clone()));
+                println!("{}", a.clone());
+                println!("{}", b.clone());
             }
 
-            y_response.push(y.clone());
-            z_response.push(z.clone());
-
-            string_to_hash += &y.to_string();
-            string_to_hash += &z.to_string();
+            hasher.input(mod_int_to_bytes(&a).as_slice());
+            hasher.input(mod_int_to_bytes(&b).as_slice());
+            println!("Loop end");
+            println!("{:?}",hasher.clone().result().as_slice());
+            // string_to_hash += &a.to_string();
+            // string_to_hash += &b.to_string();
         }
 
-        let c_hash = Serializer::string_to_sha512(string_to_hash);
-        let mut c_0 = ModInt::from_hex_string(c_hash, public_key.q.value.clone());
+
+        // let mut hex_string = String::new();
+        // for byte in hasher.result().iter() {
+        //     hex_string += &format!("{:02x}", byte)
+        // }
+        //
+        // let mut c_0 = ModInt::from_hex_string(hex_string, public_key.q.value.clone());
+        //
+        //
+        let mut c_0 = ModInt::from_value_modulus(
+            BigInt::from_bytes_le(Sign::NoSign, hasher.result().as_ref()),
+            public_key.q.value.clone()
+        );
+        println!("{}", c_0.clone());
 
         for fake_c in c_response.clone() {
+            println!("Fake: {}", fake_c.clone());
             c_0 = c_0.sub(fake_c);
+            println!("{}", c_0.clone());
         }
 
-        s_response[message_idx] = c_0.clone().mul(cipher_text.random.clone()).add(t.clone());
-        c_response[message_idx] = c_0;
+        s_response[chosen_vote_idx] = c_0.clone().mul(cipher_text.random.clone()).add(s_for_valid.clone());
+        c_response[chosen_vote_idx] = c_0;
 
         MembershipProof {
             s_responses: s_response,
-            c_responses: c_response,
-            y_responses: y_response,
-            z_responses: z_response,
-            p: public_key.p,
-            q: public_key.q,
+            c_responses: c_response
         }
     }
 
@@ -116,30 +138,25 @@ impl MembershipProof {
             panic!("Domain has not the same length as the values of the proof.")
         }
 
-        let g = ModInt {
-            value: public_key.g.value.clone(),
-            modulus: public_key.p.value.clone(),
-        };
-
-        let h = ModInt {
-            value: public_key.h.value.clone(),
-            modulus: public_key.p.value.clone(),
-        };
-
         let mut c_choices = ModInt {
             value: BigInt::zero(),
-            modulus: public_key.q.value.clone()
+            modulus: public_key.q.value.clone(),
         };
 
-        let mut string_to_hash = String::new();
-        string_to_hash += &g.to_string();
-        string_to_hash += &h.to_string();
-        string_to_hash += &cipher_text.big_g.to_string();
-        string_to_hash += &cipher_text.big_h.to_string();
+        let mut hasher = Sha512::default();
+        hasher.input(mod_int_to_bytes(&public_key.g).as_slice());
+        hasher.input(mod_int_to_bytes(&public_key.h).as_slice());
+        hasher.input(mod_int_to_bytes(&cipher_text.big_g).as_slice());
+        hasher.input(mod_int_to_bytes(&cipher_text.big_h).as_slice());
+        // let mut string_to_hash = String::new();
+        // string_to_hash += &g.to_string();
+        // string_to_hash += &h.to_string();
+        // string_to_hash += &cipher_text.big_g.to_string();
+        // string_to_hash += &cipher_text.big_h.to_string();
 
         for i in 0..self.c_responses.len() {
             let domain_val = domain.get(i).unwrap();
-            let g_pow = g.clone().pow(domain_val.clone());
+            let g_pow = public_key.g.clone().pow(domain_val.clone());
 
             let s: ModInt = (*self.s_responses.get(i).unwrap()).clone();
             let c: ModInt = (*self.c_responses.get(i).unwrap()).clone();
@@ -147,15 +164,21 @@ impl MembershipProof {
 
             c_choices = c_choices.add(c.clone());
 
-            let y = g.clone().pow(s.clone()).mul(cipher_text.big_g.clone().pow(neg_c.clone()));
-            let z = h.clone().pow(s.clone()).mul(cipher_text.big_h.clone().div(g_pow).pow(neg_c.clone()));
+            let y = public_key.g.clone().pow(s.clone()).mul(cipher_text.big_g.clone().pow(neg_c.clone()));
+            let z = public_key.h.clone().pow(s.clone()).mul(cipher_text.big_h.clone().div(g_pow).pow(neg_c.clone()));
 
-            string_to_hash += &y.to_string();
-            string_to_hash += &z.to_string();
+            hasher.input(mod_int_to_bytes(&y).as_slice());
+            hasher.input(mod_int_to_bytes(&z).as_slice());
+            // string_to_hash += &y.to_string();
+            // string_to_hash += &z.to_string();
         }
 
-        let c_hash: String = Serializer::string_to_sha512(string_to_hash);
-        let new_c = ModInt::from_hex_string(c_hash, self.q.value.clone());
+        // let c_hash: String = Serializer::string_to_sha512(string_to_hash);
+        // let new_c = ModInt::from_hex_string(c_hash, self.q.value.clone());
+        let new_c = ModInt::from_value_modulus(
+            BigInt::from_bytes_le(Sign::NoSign, hasher.result().as_ref()),
+            public_key.q.value.clone()
+        );
 
         return c_choices.eq(&new_c);
     }
@@ -163,7 +186,6 @@ impl MembershipProof {
 
 #[cfg(test)]
 mod membership_proof_test {
-
     use ::el_gamal::encryption::PublicKey;
     use ::el_gamal::encryption::{encrypt};
     use ::arithmetic::mod_int::ModInt;
@@ -174,24 +196,36 @@ mod membership_proof_test {
     use ::el_gamal::membership_proof::MembershipProof;
     use std::vec::Vec;
     use std::clone::Clone;
+    use num::Num;
+    use el_gamal::ciphertext::CipherText;
 
     #[test]
     pub fn test_one_or_proof() {
+        let x = BigInt::from_str_radix("896771263533775491364511200158444196377569745583", 10).unwrap();
+        //h := (g^x) mod p
+        let h = BigInt::from_str_radix("216354726151927782480677585315485875691753344522", 10).unwrap();
+        let g = BigInt::from_str_radix("650614565471833138727952492078522919745801716191", 10).unwrap();
+        let p = BigInt::from_str_radix("1449901879557492303016150949425292606294424240059", 10).unwrap();
+        let q = (p.clone() - BigInt::one()) / BigInt::from_str_radix("2", 10).unwrap();
+
+        let pub_key = PublicKey {
+            p: ModInt::from_value_modulus(p.clone(), BigInt::zero()),
+            q: ModInt::from_value_modulus(q.clone(), BigInt::zero()),
+            h: ModInt::from_value_modulus(h.clone(), p.clone()),
+            g: ModInt::from_value_modulus(g.clone(), p.clone()),
+        };
+
         let message: ModInt = ModInt {
             value: BigInt::one(),
-            modulus: BigInt::from(5) // must be equal to the value p of the public key
+            modulus: pub_key.p.value.clone(), // must be equal to the value p of the public key
         };
 
-        //h := (g^x) mod p
-        //2 := 2^5 mod 5
-        let pub_key: PublicKey = PublicKey {
-            p: ModInt::from_value_modulus(BigInt::from(5), BigInt::zero()),
-            q: ModInt::from_value_modulus(BigInt::from(2), BigInt::zero()),
-            h: ModInt::from_value_modulus(BigInt::from(32), BigInt::from(5)),
-            g: ModInt::from_value_modulus(BigInt::from(2), BigInt::from(5))
+        // let cipher_text = encrypt(&pub_key, message.clone());
+        let cipher_text: CipherText = CipherText {
+            big_g: ModInt::from_value_modulus(  BigInt::from_str_radix("114174391746769211179057064050450668223944675624", 10).unwrap(),  BigInt::from_str_radix("1449901879557492303016150949425292606294424240059", 10).unwrap()),
+            big_h: ModInt::from_value_modulus(  BigInt::from_str_radix("885476757034082641428791475482165474592721569831", 10).unwrap(),  BigInt::from_str_radix("1449901879557492303016150949425292606294424240059", 10).unwrap()),
+            random: ModInt::from_value_modulus( BigInt::from_str_radix("7146048211113775906570416131721832206513831805", 10).unwrap(),  BigInt::from_str_radix("724950939778746151508075474712646303147212120029", 10).unwrap())
         };
-
-        let cipher_text = encrypt(&pub_key, message.clone());
 
         let mut domains = Vec::new();
         domains.push(ModInt::zero());
@@ -202,7 +236,7 @@ mod membership_proof_test {
             pub_key.clone(),
             message,
             cipher_text.clone(),
-            domains.clone()
+            domains.clone(),
         );
 
         let is_proven = proof.verify(pub_key.clone(), cipher_text.clone(), domains.clone());
@@ -212,32 +246,34 @@ mod membership_proof_test {
 
     #[test]
     pub fn test_zero_or_proof() {
-        let message: ModInt = ModInt {
-            value: BigInt::zero(),
-            modulus: BigInt::from(5) // must be equal to the value p of the public key
+        let x = BigInt::from_str_radix("896771263533775491364511200158444196377569745583", 10).unwrap();
+        //h := (g^x) mod p
+        let h = BigInt::from_str_radix("216354726151927782480677585315485875691753344522", 10).unwrap();
+        let g = BigInt::from_str_radix("650614565471833138727952492078522919745801716191", 10).unwrap();
+        let p = BigInt::from_str_radix("1449901879557492303016150949425292606294424240059", 10).unwrap();
+        let q = (p.clone() - BigInt::one()) / BigInt::from_str_radix("2", 10).unwrap();
+
+        let pub_key = PublicKey {
+            p: ModInt::from_value_modulus(p.clone(), BigInt::zero()),
+            q: ModInt::from_value_modulus(q.clone(), BigInt::zero()),
+            h: ModInt::from_value_modulus(h.clone(), p.clone()),
+            g: ModInt::from_value_modulus(g.clone(), p.clone()),
         };
 
-        //h := (g^x) mod p
-        //2 := 2^5 mod 5
-        let pub_key: PublicKey = PublicKey {
-            p: ModInt::from_value_modulus(BigInt::from(5), BigInt::zero()),
-            q: ModInt::from_value_modulus(BigInt::from(2), BigInt::zero()),
-            h: ModInt::from_value_modulus(BigInt::from(32), BigInt::from(5)),
-            g: ModInt::from_value_modulus(BigInt::from(2), BigInt::from(5))
+        let message: ModInt = ModInt {
+            value: BigInt::zero(),
+            modulus: pub_key.p.value.clone(), // must be equal to the value p of the public key
         };
 
         let cipher_text = encrypt(&pub_key, message.clone());
 
-        let mut domains = Vec::new();
-        domains.push(ModInt::zero());
-        domains.push(ModInt::one());
-
+        let domains = vec![ModInt::zero(), ModInt::one()];
 
         let proof = MembershipProof::new(
             pub_key.clone(),
             message, // <- other message than encrypted
             cipher_text.clone(),
-            domains.clone()
+            domains.clone(),
         );
 
         let is_proven = proof.verify(pub_key.clone(), cipher_text.clone(), domains.clone());

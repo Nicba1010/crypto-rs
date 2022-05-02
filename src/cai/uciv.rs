@@ -98,56 +98,44 @@ impl CaiProof {
         let mut h1_options: Vec<ModInt> = vec![ModInt::zero(); pre_image_set.pre_images.len()];
         let mut h2_options: Vec<ModInt> = vec![ModInt::zero(); pre_image_set.pre_images.len()];
 
-        let mut a_options: Vec<ModInt> = vec![ModInt::zero(); pre_image_set.pre_images.len()];
-        let mut b_options: Vec<ModInt> = vec![ModInt::zero(); pre_image_set.pre_images.len()];
-
-        let j = chosen_vote_idx;
-
-        let c1 = cipher_text.big_g;
-        let c2 = cipher_text.big_h;
+        let mut z_options: Vec<ModInt> = vec![ModInt::zero(); pre_image_set.pre_images.len()];
 
         let mut string_to_hash = String::new();
-        string_to_hash += &c1.to_string();
-        string_to_hash += &c2.to_string();
+        string_to_hash += &cipher_text.big_g.to_string();
+        string_to_hash += &cipher_text.big_h.to_string();
 
         // TODO: add c3, c4
 
         for i in 0..pre_image_set.pre_images.len() {
-            if i != j {
-                // case 1: all not-chosen options
+            // generate random values
+            let r1_i = ModInt::gen_modint(public_key.q.clone());
+            let r2_i = ModInt::gen_modint(public_key.q.clone());
+            let r3_i = ModInt::gen_modint(public_key.q.clone());
+            z_options[i] = r3_i.clone();
 
-                // generate random values
-                let s1_i = ModInt::gen_modint(public_key.q.clone());
-                let h1_i = ModInt::gen_modint(public_key.q.clone());
-                s1_options[i] = s1_i.clone();
-                h1_options[i] = h1_i.clone();
+            if i != chosen_vote_idx {
+                // case 1: all not-chosen options
+                s1_options[i] = r1_i.clone();
+                h1_options[i] = r2_i.clone();
 
                 // the specific values for each voting options
-                let c1_i = public_key.g.clone().pow(s1_i.clone()).mul(c1.clone().pow(h1_i.clone().neg()));
-                let c2_i = public_key.h.clone().pow(s1_i.clone()).mul((c2.clone().div(public_key.g.clone().pow(voting_options[i].clone()))).pow(h1_i.clone().neg()));
+                let c1_i = public_key.g.clone().pow(r1_i.clone()).mul(cipher_text.big_g.clone().pow(r2_i.clone().neg()));
+                let c2_i = public_key.h.clone().pow(r1_i.clone()).mul((cipher_text.big_h.clone().div(public_key.g.clone().pow(voting_options[i].clone()))).pow(r2_i.clone().neg()));
 
-                let a_i = ModInt::gen_modint(public_key.q.clone());
-                a_options[i] = a_i.clone();
-                let r_i = public_key.g.clone().pow(a_i);
+                let r_i = public_key.g.clone().pow(r3_i.clone());
 
                 string_to_hash += &c1_i.to_string();
                 string_to_hash += &c2_i.to_string();
                 string_to_hash += &r_i.to_string();
             } else {
                 // case 2: the chosen option
+                s2_options[i] = r1_i.clone();
+                h2_options[i] = r2_i.clone();
 
-                let s2_j = ModInt::gen_modint(public_key.q.clone());
-                let h2_j = ModInt::gen_modint(public_key.q.clone());
-                s2_options[j] = s2_j.clone();
-                h2_options[j] = h2_j.clone();
+                let c1_j = public_key.g.clone().pow(r3_i.clone());
+                let c2_j = public_key.h.clone().pow(r3_i.clone());
 
-                let b_j = ModInt::gen_modint(public_key.q.clone());
-                b_options[j] = b_j.clone();
-
-                let c1_j = public_key.g.clone().pow(b_j.clone());
-                let c2_j = public_key.h.clone().pow(b_j.clone());
-
-                let r_j = public_key.g.clone().pow(s2_j).mul(image_set.images[j].clone().pow(h2_j.clone().neg()));
+                let r_j = public_key.g.clone().pow(r1_i).mul(image_set.images[i].clone().pow(r2_i.clone().neg()));
 
                 string_to_hash += &c1_j.to_string();
                 string_to_hash += &c2_j.to_string();
@@ -156,26 +144,25 @@ impl CaiProof {
         }
 
         let h_hash = Serializer::string_to_sha512(string_to_hash);
-        let h = ModInt::from_hex_string(h_hash, public_key.q.value.clone());
+        let s = ModInt::from_hex_string(h_hash, public_key.q.value.clone());
 
         for i in 0..pre_image_set.pre_images.len() {
-            if i != j {
+            if i != chosen_vote_idx {
                 // case 1: all not-chosen options
 
-                let h2_i = h.clone().sub(h1_options[i].clone());
-                h2_options[i] = h2_i.clone();
+                let r1_i = s.clone().sub(h1_options[i].clone());
+                h2_options[i] = r1_i.clone();
 
-                let s2_i = a_options[i].clone().add(pre_image_set.pre_images[i].clone().mul(h2_i.clone()));
-                s2_options[i] = s2_i;
+                let r2_i = z_options[i].clone().add(pre_image_set.pre_images[i].clone().mul(r1_i.clone()));
+                s2_options[i] = r2_i;
 
             } else {
                 // case 2: the chosen option
+                let r1_i = s.clone().sub(h2_options[i].clone());
+                let r2_i = z_options[i].clone().add(cipher_text.random.clone().mul(r1_i.clone()));
 
-                let h1_j = h.clone().sub(h2_options[j].clone());
-                h1_options[j] = h1_j.clone();
-
-                let s1_j = b_options[j].clone().add(cipher_text.random.clone().mul(h1_j.clone()));
-                s1_options[j] = s1_j.clone();
+                h1_options[i] = r1_i.clone();
+                s1_options[i] = r2_i.clone();
             }
         }
 
@@ -184,7 +171,7 @@ impl CaiProof {
             s2_options,
             h1_options,
             h2_options,
-            h
+            h: s
         }
     }
 
@@ -232,40 +219,45 @@ mod uciv_proof_test {
     use ::el_gamal::encryption::{encrypt};
     use ::el_gamal::ciphertext::CipherText;
     use ::arithmetic::mod_int::ModInt;
-    use arithmetic::mod_int::From;
+    use arithmetic::mod_int::{From, RandModInt};
     use ::num::bigint::BigInt;
     use ::num::Zero;
     use ::num::One;
-    use std::vec::Vec;
     use std::clone::Clone;
+    use num::Num;
     use ::cai::uciv::{CaiProof, ImageSet, PreImageSet};
 
     #[test]
     pub fn test_valid_proof() {
         //h := (g^x) mod p
         //2 := 2^5 mod 5
-        let pub_key: PublicKey = PublicKey {
-            p: ModInt::from_value_modulus(BigInt::from(5), BigInt::zero()),
-            q: ModInt::from_value_modulus(BigInt::from(2), BigInt::zero()),
-            h: ModInt::from_value_modulus(BigInt::from(32), BigInt::from(5)),
-            g: ModInt::from_value_modulus(BigInt::from(2), BigInt::from(5))
+        let x = BigInt::from_str_radix("896771263533775491364511200158444196377569745583", 10).unwrap();
+        //h := (g^x) mod p
+        let h = BigInt::from_str_radix("216354726151927782480677585315485875691753344522", 10).unwrap();
+        let g = BigInt::from_str_radix("650614565471833138727952492078522919745801716191", 10).unwrap();
+        let p = BigInt::from_str_radix("1449901879557492303016150949425292606294424240059", 10).unwrap();
+        let q = (p.clone() - BigInt::one()) / BigInt::from_str_radix("2", 10).unwrap();
+
+        let pub_key = PublicKey {
+            p: ModInt::from_value_modulus(p.clone(), BigInt::zero()),
+            q: ModInt::from_value_modulus(q.clone(), BigInt::zero()),
+            h: ModInt::from_value_modulus(h.clone(), p.clone()),
+            g: ModInt::from_value_modulus(g.clone(), p.clone()),
         };
 
-        let mut voting_options = Vec::new();
-        voting_options.push(ModInt::zero());
-        voting_options.push(ModInt::one());
+        let mut voting_options = vec![ModInt::zero(), ModInt::one()];
 
         let message: ModInt = ModInt {
             value: BigInt::one(),
-            modulus: BigInt::from(5) // must be equal to the value p of the public key
+            modulus: pub_key.p.value.clone() // must be equal to the value p of the public key
         };
         let cipher_text = encrypt(&pub_key, message.clone());
         let chosen_vote_idx = 1;
 
         let pre_image_set = PreImageSet {
             pre_images: vec![
-                ModInt::from_value_modulus(BigInt::from(1), BigInt::from(5)),
-                ModInt::from_value_modulus(BigInt::from(0), BigInt::from(5))
+                ModInt::gen_modint(pub_key.q.clone()),
+                ModInt::gen_modint(pub_key.q.clone())
             ]
         };
 
@@ -294,28 +286,34 @@ mod uciv_proof_test {
     pub fn test_invalid_proof() {
         //h := (g^x) mod p
         //2 := 2^5 mod 5
-        let pub_key: PublicKey = PublicKey {
-            p: ModInt::from_value_modulus(BigInt::from(5), BigInt::zero()),
-            q: ModInt::from_value_modulus(BigInt::from(2), BigInt::zero()),
-            h: ModInt::from_value_modulus(BigInt::from(32), BigInt::from(5)),
-            g: ModInt::from_value_modulus(BigInt::from(2), BigInt::from(5))
+        let x = BigInt::from_str_radix("896771263533775491364511200158444196377569745583", 10).unwrap();
+        //h := (g^x) mod p
+        let h = BigInt::from_str_radix("216354726151927782480677585315485875691753344522", 10).unwrap();
+        let g = BigInt::from_str_radix("650614565471833138727952492078522919745801716191", 10).unwrap();
+        let p = BigInt::from_str_radix("1449901879557492303016150949425292606294424240059", 10).unwrap();
+        let q = (p.clone() - BigInt::one()) / BigInt::from_str_radix("2", 10).unwrap();
+
+        let pub_key = PublicKey {
+            p: ModInt::from_value_modulus(p.clone(), BigInt::zero()),
+            q: ModInt::from_value_modulus(q.clone(), BigInt::zero()),
+            h: ModInt::from_value_modulus(h.clone(), p.clone()),
+            g: ModInt::from_value_modulus(g.clone(), p.clone()),
         };
 
-        let mut voting_options = Vec::new();
-        voting_options.push(ModInt::zero());
-        voting_options.push(ModInt::one());
+        let mut voting_options = vec![ModInt::zero(), ModInt::one()];
 
         let message: ModInt = ModInt {
             value: BigInt::one(),
-            modulus: BigInt::from(5) // must be equal to the value p of the public key
+            modulus: pub_key.p.value.clone() // must be equal to the value p of the public key
         };
+
         let cipher_text = encrypt(&pub_key, message.clone());
         let chosen_vote_idx = 1;
 
         let pre_image_set = PreImageSet {
             pre_images: vec![
-                ModInt::from_value_modulus(BigInt::from(1), BigInt::from(5)),
-                ModInt::from_value_modulus(BigInt::from(0), BigInt::from(5))
+                ModInt::gen_modint(pub_key.q.clone()),
+                ModInt::gen_modint(pub_key.q.clone())
             ]
         };
 
@@ -331,9 +329,9 @@ mod uciv_proof_test {
         );
 
         let fake_cipher_text = CipherText {
-            big_g: ModInt::from_value_modulus(BigInt::from(1), BigInt::from(0)),
-            big_h: ModInt::from_value_modulus(BigInt::from(2), BigInt::from(0)),
-            random: ModInt::from_value_modulus(BigInt::from(3), BigInt::from(0))
+            big_g: ModInt::from_value_modulus(BigInt::from(1), pub_key.p.value.clone()),
+            big_h: ModInt::from_value_modulus(BigInt::from(2), pub_key.p.value.clone()),
+            random: ModInt::from_value_modulus(BigInt::from(3), pub_key.p.value.clone())
         };
 
         let is_proven = proof.verify(
